@@ -4,6 +4,7 @@ from discord import app_commands
 import json
 import random
 import os
+from datetime import datetime
 
 # =========================
 # CONFIG
@@ -68,65 +69,89 @@ def roll_reward():
             return reward
         upto += weight
 
-class RollView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
+# =========================
+# SLASH ROLL COMMAND
+# =========================
 
-    @discord.ui.button(
-        label="🎰 Random (use 300 point)",
-        style=discord.ButtonStyle.green,
-        custom_id="persistent_roll_button"
+@bot.tree.command(
+    name="roll",
+    description="Use 300 points to gacha",
+)
+async def roll_slash(interaction: discord.Interaction):
+
+    if interaction.channel.id != ALLOWED_CHANNEL_ID:
+        await interaction.response.send_message("❌ Wrong channel", ephemeral=True)
+        return
+
+    user = interaction.user
+    user_id = str(user.id)
+
+    if data.get(user_id, 0) < 300:
+        await interaction.response.send_message("❌ Not enough points", ephemeral=True)
+        return
+
+    data[user_id] -= 300
+    reward = roll_reward()
+
+    if "add point" in reward:
+        amount = int(reward.split("+")[1])
+        data[user_id] += amount
+
+    save_data()
+    await update_nickname(user)
+
+    embed = discord.Embed(
+        title="˚.🎀༘⋆ Gacha Result",
+        description=f"🎉 Your reward: **{reward}**",
+        color=discord.Color.green()
     )
-    async def roll_button(self, interaction: discord.Interaction, button: discord.ui.Button):
 
-        user = interaction.user
-        user_id = str(user.id)
+    embed.add_field(
+        name="💎 Your Points",
+        value=f"{data[user_id]} points",
+        inline=False
+    )
 
-        if data.get(user_id, 0) < 300:
-            await interaction.response.send_message("❌ Not enough points", ephemeral=True)
-            return
+    # เห็นเฉพาะผู้ใช้
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
-        await interaction.response.send_message(
-            "⚠️ Use 300 points to gacha?",
-            view=ConfirmView(),
-            ephemeral=True
+    # ================= DM ผู้ใช้ =================
+    try:
+        await user.send(embed=embed)
+    except:
+        pass
+
+    # ================= แจ้งเจ้าของเซิร์ฟ =================
+    try:
+        owner = interaction.guild.owner
+
+        log_embed = discord.Embed(
+            title="📢 Gacha Log",
+            color=discord.Color.gold()
         )
 
-class ConfirmView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=30)
-
-    @discord.ui.button(label="✅ Confirm", style=discord.ButtonStyle.red)
-    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-
-        await interaction.response.defer(ephemeral=True)
-
-        user = interaction.user
-        user_id = str(user.id)
-
-        data[user_id] -= 300
-        reward = roll_reward()
-
-        if "add point" in reward:
-            amount = int(reward.split("+")[1])
-            data[user_id] += amount
-
-        save_data()
-        await update_nickname(user)
-
-        embed = discord.Embed(
-            title="˚.🎀༘⋆ Gacha Result",
-            description=f"🎉 Your reward: **{reward}**",
-            color=discord.Color.green()
-        )
-
-        embed.add_field(
-            name="💎 Your Points",
-            value=f"{data[user_id]} points",
+        log_embed.add_field(
+            name="User",
+            value=f"{user} ({user.id})",
             inline=False
         )
 
-        await interaction.followup.send(embed=embed)
+        log_embed.add_field(
+            name="Reward",
+            value=reward,
+            inline=False
+        )
+
+        log_embed.add_field(
+            name="Time",
+            value=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            inline=False
+        )
+
+        await owner.send(embed=log_embed)
+    except:
+        pass
+
 
 # =========================
 # SLASH ADD POINTS (OWNER ONLY)
@@ -169,16 +194,6 @@ async def addpoints_slash(interaction: discord.Interaction, member: discord.Memb
 
     await interaction.edit_original_response(content=None, embed=embed)
 
-# =========================
-# PREFIX COMMAND
-# =========================
-
-@bot.command()
-async def sendroll(ctx):
-    await ctx.send(
-        "Press the button below for a random reward 🎰",
-        view=RollView()
-    )
 
 # =========================
 # READY EVENT
@@ -187,13 +202,13 @@ async def sendroll(ctx):
 @bot.event
 async def on_ready():
     try:
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} commands globally")
+        synced = await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
+        print(f"Synced {len(synced)} commands")
     except Exception as e:
         print("Sync error:", e)
 
-    bot.add_view(RollView())
     print(f"Bot is online as {bot.user}")
+
 
 # =========================
 # RUN BOT (ENV TOKEN)
