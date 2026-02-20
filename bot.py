@@ -28,7 +28,7 @@ from datetime import datetime
 # =========================
 
 GUILD_ID = 919604864185688165
-ALLOWED_CHANNEL_ID = 1087434625569280150
+ALLOWED_CHANNEL_ID = 1474397016082747422
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -239,5 +239,6 @@ if not TOKEN:
 else:
     keep_alive()
     bot.run(TOKEN)
+
 
 
