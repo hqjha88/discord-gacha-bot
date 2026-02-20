@@ -1,6 +1,16 @@
 from flask import Flask
 from threading import Thread
+import discord
+from discord.ext import commands
+from discord import app_commands
+import json
+import random
 import os
+from datetime import datetime
+
+# =========================
+# WEB SERVER (FOR RENDER FREE)
+# =========================
 
 app = Flask(__name__)
 
@@ -15,20 +25,14 @@ def run_web():
 def keep_alive():
     t = Thread(target=run_web)
     t.start()
-import discord
-from discord.ext import commands
-from discord import app_commands
-import json
-import random
-import os
-from datetime import datetime
 
 # =========================
 # CONFIG
 # =========================
 
 GUILD_ID = 919604864185688165
-ALLOWED_CHANNEL_ID = 1474397016082747422
+GACHA_CHANNEL_ID = 1474397016082747422
+GACHA_MESSAGE_ID = None  # ครั้งแรกให้เป็น None ก่อน
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -87,89 +91,90 @@ def roll_reward():
         upto += weight
 
 # =========================
-# SLASH ROLL COMMAND
+# PERSISTENT GACHA BUTTON
 # =========================
 
-@bot.tree.command(
-    name="roll",
-    description="Use 300 points to gacha",
-    guild=discord.Object(id=GUILD_ID)
-)
-async def roll_slash(interaction: discord.Interaction):
+class GachaView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
 
-    if interaction.channel.id != ALLOWED_CHANNEL_ID:
-        await interaction.response.send_message("❌ Wrong channel", ephemeral=True)
-        return
+    @discord.ui.button(
+        label="🎲 Roll (300 points)",
+        style=discord.ButtonStyle.primary,
+        custom_id="persistent_gacha_button"
+    )
+    async def roll_button(self, interaction: discord.Interaction, button: discord.ui.Button):
 
-    user = interaction.user
-    user_id = str(user.id)
+        user = interaction.user
+        user_id = str(user.id)
 
-    if data.get(user_id, 0) < 300:
-        await interaction.response.send_message("❌ Not enough points", ephemeral=True)
-        return
+        if data.get(user_id, 0) < 300:
+            await interaction.response.send_message("❌ Not enough points", ephemeral=True)
+            return
 
-    data[user_id] -= 300
-    reward = roll_reward()
+        data[user_id] -= 300
+        reward = roll_reward()
 
-    if "add point" in reward:
-        amount = int(reward.split("+")[1])
-        data[user_id] += amount
+        if "add point" in reward:
+            amount = int(reward.split("+")[1])
+            data[user_id] += amount
 
-    save_data()
-    await update_nickname(user)
+        save_data()
+        await update_nickname(user)
+
+        embed = discord.Embed(
+            title="˚.🎀༘⋆ Gacha Result",
+            description=f"🎉 Your reward: **{reward}**",
+            color=discord.Color.green()
+        )
+
+        embed.add_field(
+            name="💎 Your Points",
+            value=f"{data[user_id]} points",
+            inline=False
+        )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        # DM ผู้ใช้
+        try:
+            await user.send(embed=embed)
+        except:
+            pass
+
+        # DM เจ้าของเซิร์ฟ
+        try:
+            owner = interaction.guild.owner
+            log_embed = discord.Embed(
+                title="📢 Gacha Log",
+                color=discord.Color.gold()
+            )
+            log_embed.add_field(name="User", value=f"{user} ({user.id})", inline=False)
+            log_embed.add_field(name="Reward", value=reward, inline=False)
+            log_embed.add_field(
+                name="Time",
+                value=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                inline=False
+            )
+            await owner.send(embed=log_embed)
+        except:
+            pass
+
+# =========================
+# CREATE GACHA MESSAGE
+# =========================
+
+async def create_gacha_message():
+    channel = bot.get_channel(GACHA_CHANNEL_ID)
 
     embed = discord.Embed(
-        title="˚.🎀༘⋆ Gacha Result",
-        description=f"🎉 Your reward: **{reward}**",
-        color=discord.Color.green()
+        title="🎰 Gacha Machine",
+        description="Press the button to roll (300 points)",
+        color=discord.Color.blue()
     )
 
-    embed.add_field(
-        name="💎 Your Points",
-        value=f"{data[user_id]} points",
-        inline=False
-    )
-
-    # เห็นเฉพาะผู้ใช้
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    # ================= DM ผู้ใช้ =================
-    try:
-        await user.send(embed=embed)
-    except:
-        pass
-
-    # ================= แจ้งเจ้าของเซิร์ฟ =================
-    try:
-        owner = interaction.guild.owner
-
-        log_embed = discord.Embed(
-            title="📢 Gacha Log",
-            color=discord.Color.gold()
-        )
-
-        log_embed.add_field(
-            name="User",
-            value=f"{user} ({user.id})",
-            inline=False
-        )
-
-        log_embed.add_field(
-            name="Reward",
-            value=reward,
-            inline=False
-        )
-
-        log_embed.add_field(
-            name="Time",
-            value=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            inline=False
-        )
-
-        await owner.send(embed=log_embed)
-    except:
-        pass
-
+    msg = await channel.send(embed=embed, view=GachaView())
+    print("GACHA MESSAGE ID:", msg.id)
 
 # =========================
 # SLASH ADD POINTS (OWNER ONLY)
@@ -178,6 +183,7 @@ async def roll_slash(interaction: discord.Interaction):
 @bot.tree.command(
     name="addpoints",
     description="Add points to a member",
+    guild=discord.Object(id=GUILD_ID)
 )
 @app_commands.describe(member="Member", amount="Amount of points")
 async def addpoints_slash(interaction: discord.Interaction, member: discord.Member, amount: int):
@@ -186,10 +192,6 @@ async def addpoints_slash(interaction: discord.Interaction, member: discord.Memb
 
     if interaction.user != interaction.guild.owner:
         await interaction.edit_original_response(content="❌ Owner only")
-        return
-
-    if interaction.channel.id != ALLOWED_CHANNEL_ID:
-        await interaction.edit_original_response(content="❌ Wrong channel")
         return
 
     user_id = str(member.id)
@@ -212,33 +214,36 @@ async def addpoints_slash(interaction: discord.Interaction, member: discord.Memb
 
     await interaction.edit_original_response(content=None, embed=embed)
 
-
 # =========================
 # READY EVENT
 # =========================
 
 @bot.event
 async def on_ready():
-    try:
-        synced = await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
-        print(f"Synced {len(synced)} commands")
-    except Exception as e:
-        print("Sync error:", e)
 
+    bot.add_view(GachaView())
+
+    channel = bot.get_channel(GACHA_CHANNEL_ID)
+
+    try:
+        if GACHA_MESSAGE_ID:
+            await channel.fetch_message(GACHA_MESSAGE_ID)
+        else:
+            await create_gacha_message()
+    except:
+        await create_gacha_message()
+
+    await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
     print(f"Bot is online as {bot.user}")
 
-
 # =========================
-# RUN BOT (ENV TOKEN)
+# RUN BOT
 # =========================
 
 TOKEN = os.getenv("TOKEN")
 
 if not TOKEN:
-    print("ERROR: TOKEN not found in environment variables")
+    print("ERROR: TOKEN not found")
 else:
     keep_alive()
     bot.run(TOKEN)
-
-
-
