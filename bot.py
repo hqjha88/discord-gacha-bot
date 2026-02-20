@@ -76,6 +76,7 @@ def roll_reward():
 @bot.tree.command(
     name="roll",
     description="Use 300 points to gacha",
+    guild=discord.Object(id=GUILD_ID)
 )
 async def roll_slash(interaction: discord.Interaction):
 
@@ -220,3 +221,4 @@ if not TOKEN:
     print("ERROR: TOKEN not found in environment variables")
 else:
     bot.run(TOKEN)
+
